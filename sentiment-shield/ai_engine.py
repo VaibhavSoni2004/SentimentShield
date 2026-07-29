@@ -1,7 +1,12 @@
 import nltk
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
-nltk.download('vader_lexicon')
-sia = SentimentIntensityAnalyzer()
+
+# Ensure vader_lexicon is safely downloaded on server start
+try:
+    sia = SentimentIntensityAnalyzer()
+except LookupError:
+    nltk.download('vader_lexicon')
+    sia = SentimentIntensityAnalyzer()
 
 def analyze_text(text: str):
     scores = sia.polarity_scores(text)

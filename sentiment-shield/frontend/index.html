@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SentimentShield Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        @keyframes float {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-8px); }
+        }
+        .animate-float {
+            animation: float 3.5s ease-in-out infinite;
+        }
+        .btn-interact {
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .btn-interact:hover {
+            transform: translateY(-2px) scale(1.02);
+        }
+        .btn-interact:active {
+            transform: scale(0.96);
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-slate-50 via-cyan-50/40 to-indigo-50/50 text-slate-800 min-h-screen p-4 sm:p-6 font-sans antialiased selection:bg-cyan-400 selection:text-slate-900">
+    
+    <div id="toast" class="fixed bottom-6 right-6 z-50 transform translate-y-20 opacity-0 transition-all duration-300 bg-cyan-600 text-white px-5 py-3.5 rounded-2xl shadow-xl shadow-cyan-600/20 flex items-center gap-3 font-extrabold text-sm">
+        <i class="fa-solid fa-circle-check text-lg"></i>
+        <span id="toast-msg">Action completed!</span>
+    </div>
+
+    <div class="max-w-7xl mx-auto space-y-8">
+        <header class="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-slate-200 pb-5 gap-4">
+            <div>
+                <h1 class="text-3xl sm:text-4xl font-black tracking-tight bg-gradient-to-r from-cyan-600 via-teal-600 to-indigo-600 bg-clip-text text-transparent flex items-center gap-3">
+                    ⚡ SentimentShield
+                </h1>
+                <p class="text-slate-500 text-sm mt-1 font-semibold">AI-Powered Live Complaint Engine & Support Hub</p>
+            </div>
+            
+            <div class="flex flex-wrap items-center gap-3 w-full sm:w-auto justify-between sm:justify-end">
+                <div class="flex items-center gap-3">
+                    <button onclick="exportCSV()" class="btn-interact bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white px-5 py-2.5 rounded-xl font-black shadow-md shadow-emerald-600/20 flex items-center justify-center gap-2 text-sm">
+                        <i class="fa-solid fa-file-csv text-base"></i> Export CSV
+                    </button>
+                    <button onclick="fetchLogs()" class="btn-interact bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 px-5 py-2.5 rounded-xl shadow-sm flex items-center justify-center gap-2 text-sm font-bold">
+                        <i class="fa-solid fa-rotate-right text-base text-cyan-600"></i> Refresh
+                    </button>
+                </div>
+
+                <div class="relative inline-block text-left">
+                    <button onclick="toggleProfileMenu()" class="flex items-center gap-3 bg-white border border-slate-200 hover:border-cyan-400 p-2 rounded-2xl transition shadow-sm focus:outline-none">
+                        <div id="profile-avatar" class="w-9 h-9 rounded-xl bg-gradient-to-tr from-cyan-500 to-indigo-600 flex items-center justify-center text-white font-black text-sm shadow-sm">
+                            U
+                        </div>
+                        <span id="nav-username" class="text-xs font-bold text-slate-700 hidden sm:inline pr-1">User</span>
+                        <i class="fa-solid fa-chevron-down text-xs text-slate-400 transition-transform duration-300" id="chevron-icon"></i>
+                    </button>
+
+                    <div id="profile-dropdown" class="hidden absolute right-0 mt-3 w-64 bg-white border border-slate-200 rounded-3xl shadow-2xl backdrop-blur-xl p-2 z-50 divide-y divide-slate-100">
+                        <div class="px-4 py-3">
+                            <p class="text-[10px] uppercase tracking-wider font-black text-cyan-600">Signed in as</p>
+                            <p id="dropdown-username" class="text-xs font-bold text-slate-800 truncate mt-0.5">username</p>
+                        </div>
+                        <div class="py-2 space-y-1 text-xs font-semibold">
+                            <a href="#help" onclick="openHelpCenter()" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-cyan-50 hover:text-cyan-600 transition">
+                                <i class="fa-solid fa-circle-question w-4 text-cyan-500"></i> Help Center
+                            </a>
+                            <a href="tel:+919876543210" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-cyan-50 hover:text-cyan-600 transition">
+                                <i class="fa-solid fa-headset w-4 text-teal-500"></i> Call Us
+                            </a>
+                        </div>
+                        <div class="pt-2">
+                            <button onclick="logout()" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-rose-600 hover:bg-rose-50 font-bold text-xs transition">
+                                <i class="fa-solid fa-arrow-right-from-bracket w-4"></i> Logout
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-5 items-center">
+            <div class="lg:col-span-5 bg-white p-5 rounded-3xl border border-slate-200 shadow-lg flex items-center gap-5 relative overflow-hidden backdrop-blur-md">
+                <div class="relative flex-shrink-0 animate-float">
+                    <svg class="w-24 h-24 drop-shadow-md" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <circle cx="64" cy="64" r="60" fill="#F1F5F9" stroke="#0EA5E9" stroke-width="4"/>
+                        <path d="M40 50C40 35 50 24 64 24C78 24 88 35 88 50V62H40V50Z" fill="#38BDF8"/>
+                        <circle cx="64" cy="58" r="22" fill="#FDE047"/>
+                        <circle cx="56" cy="56" r="4" fill="#0F172A"/>
+                        <circle cx="72" cy="56" r="4" fill="#0F172A"/>
+                        <path d="M58 66C60 68 68 68 70 66" stroke="#0F172A" stroke-width="3" stroke-linecap="round"/>
+                        <path d="M42 54C36 54 34 60 34 68C34 76 40 82 50 82H58" stroke="#6366F1" stroke-width="4" stroke-linecap="round"/>
+                        <circle cx="58" cy="82" r="5" fill="#6366F1"/>
+                        <path d="M30 110C30 92 45 84 64 84C83 84 98 92 98 110V120H30V110Z" fill="#0284C7"/>
+                        <path d="M64 84L54 110H74L64 84Z" fill="#F8FAFC"/>
+                        <path d="M62 90L66 90L64 102Z" fill="#E11D48"/>
+                    </svg>
+                    <span class="absolute top-0 right-0 flex h-4 w-4">
+                      <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                      <span class="relative inline-flex rounded-full h-4 w-4 bg-emerald-500"></span>
+                    </span>
+                </div>
+                <div>
+                    <div class="bg-cyan-50 text-cyan-700 text-xs font-black px-3 py-1 rounded-full border border-cyan-200 inline-flex items-center gap-1.5 mb-2 shadow-sm">
+                        <i class="fa-solid fa-headset text-emerald-500"></i> AI Agent Active
+                    </div>
+                    <h3 class="text-lg font-black text-slate-800 leading-tight">Ready to Resolve Complaints</h3>
+                    <p class="text-xs text-slate-500 mt-1">Submit your tickets below — monitoring urgency in real-time!</p>
+                </div>
+            </div>
+
+            <div class="lg:col-span-7 grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm transition">
+                    <p class="text-slate-400 text-xs uppercase tracking-wider font-extrabold">Total Feedbacks</p>
+                    <p id="stat-total" class="text-3xl font-black text-cyan-600 mt-1">0</p>
+                </div>
+                <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm transition">
+                    <p class="text-slate-400 text-xs uppercase tracking-wider font-extrabold">High Urgency</p>
+                    <p id="stat-high" class="text-3xl font-black text-rose-600 mt-1">0</p>
+                </div>
+                <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm transition">
+                    <p class="text-slate-400 text-xs uppercase tracking-wider font-extrabold">Resolved</p>
+                    <p id="stat-resolved" class="text-3xl font-black text-emerald-600 mt-1">0</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+            <div class="lg:col-span-4 bg-white p-6 rounded-3xl border border-slate-200 shadow-lg h-fit space-y-4">
+                <h2 class="text-xl font-extrabold text-slate-800 flex items-center gap-2">
+                    <i class="fa-solid fa-paper-plane text-cyan-600"></i> Submit New Feedback
+                </h2>
+                <form id="analyzeForm" class="space-y-4">
+                    <div>
+                        <label class="block text-xs font-black text-slate-500 uppercase tracking-wider mb-2">Customer Complaint / Review</label>
+                        <textarea id="reviewText" rows="5" class="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-slate-800 focus:outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20 transition text-sm leading-relaxed" placeholder="e.g. URGENT: Money debited twice!" required></textarea>
+                    </div>
+                    <button type="submit" class="btn-interact w-full bg-gradient-to-r from-cyan-600 via-teal-600 to-indigo-600 text-white font-black py-3.5 rounded-2xl transition shadow-lg text-sm flex items-center justify-center gap-2">
+                        <span>Analyze & Log Ticket</span>
+                        <i class="fa-solid fa-bolt text-xs"></i>
+                    </button>
+                </form>
+            </div>
+
+            <div class="lg:col-span-8 bg-white p-6 rounded-3xl border border-slate-200 shadow-lg space-y-5">
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                    <h2 class="text-xl font-extrabold text-slate-800 flex items-center gap-2">
+                        <i class="fa-solid fa-list-check text-cyan-600"></i> Priority Review Queue
+                    </h2>
+                    
+                    <div class="flex bg-slate-100 p-1.5 rounded-2xl border border-slate-200 text-xs font-bold">
+                        <button onclick="setFilter('ALL')" id="filter-ALL" class="px-3.5 py-1.5 rounded-xl bg-cyan-600 text-white font-black shadow-sm">All</button>
+                        <button onclick="setFilter('High')" id="filter-High" class="px-3.5 py-1.5 rounded-xl text-slate-600 hover:text-slate-900 transition">High</button>
+                        <button onclick="setFilter('Medium')" id="filter-Medium" class="px-3.5 py-1.5 rounded-xl text-slate-600 hover:text-slate-900 transition">Medium</button>
+                        <button onclick="setFilter('Low')" id="filter-Low" class="px-3.5 py-1.5 rounded-xl text-slate-600 hover:text-slate-900 transition">Low</button>
+                    </div>
+                </div>
+
+                <div class="w-full overflow-x-auto">
+                    <table class="w-full text-left border-collapse">
+                        <thead class="bg-slate-50 text-slate-600 border-b border-slate-200">
+                            <tr>
+                                <th class="py-3.5 px-3 text-xs font-black tracking-wider uppercase text-cyan-700">ID</th>
+                                <th class="py-3.5 px-3 text-xs font-black tracking-wider uppercase text-cyan-700">Feedback Message</th>
+                                <th class="py-3.5 px-3 text-xs font-black tracking-wider uppercase text-cyan-700">Urgency</th>
+                                <th class="py-3.5 px-3 text-center text-xs font-black tracking-wider uppercase text-cyan-700">Status</th>
+                                <th class="py-3.5 px-3 text-center text-xs font-black tracking-wider uppercase text-cyan-700">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="logsTable" class="divide-y divide-slate-100 text-sm">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Uses relative URLs for automatic handling on both localhost and Render
+        const API_BASE = "";
+        let rawLogsData = [];
+        let currentFilter = "ALL";
+
+        document.addEventListener("DOMContentLoaded", () => {
+            const currentUser = localStorage.getItem("user");
+            if (!currentUser) {
+                window.location.href = "/login-page";
+            } else {
+                document.getElementById("nav-username").innerText = currentUser;
+                document.getElementById("dropdown-username").innerText = currentUser;
+                document.getElementById("profile-avatar").innerText = currentUser.charAt(0).toUpperCase();
+            }
+            fetchLogs();
+        });
+
+        function toggleProfileMenu() {
+            document.getElementById("profile-dropdown").classList.toggle("hidden");
+            document.getElementById("chevron-icon").classList.toggle("rotate-180");
+        }
+
+        window.addEventListener("click", function(e) {
+            const dropdown = document.getElementById("profile-dropdown");
+            const button = dropdown ? dropdown.previousElementSibling : null;
+            if (dropdown && button && !button.contains(e.target) && !dropdown.contains(e.target)) {
+                dropdown.classList.add("hidden");
+                document.getElementById("chevron-icon").classList.remove("rotate-180");
+            }
+        });
+
+        function openHelpCenter() {
+            alert("SentimentShield Support: For any assistance, review your database logs or contact support.");
+        }
+
+        function logout() {
+            localStorage.removeItem("user");
+            window.location.href = "/login-page";
+        }
+
+        function showToast(msg) {
+            const toast = document.getElementById("toast");
+            document.getElementById("toast-msg").innerText = msg;
+            toast.classList.remove("translate-y-20", "opacity-0");
+            setTimeout(() => {
+                toast.classList.add("translate-y-20", "opacity-0");
+            }, 2500);
+        }
+
+        document.getElementById("analyzeForm").addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const text = document.getElementById("reviewText").value;
+            try {
+                const response = await fetch(`${API_BASE}/analyze`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ text })
+                });
+                if (response.ok) {
+                    document.getElementById("reviewText").value = "";
+                    showToast("Feedback analyzed & logged!");
+                    fetchLogs();
+                }
+            } catch (err) {
+                console.error(err);
+            }
+        });
+
+        async function fetchLogs() {
+            try {
+                const res = await fetch(`${API_BASE}/logs`);
+                const json = await res.json();
+                
+                let logsArray = [];
+                if (Array.isArray(json)) logsArray = json;
+                else if (json.data && Array.isArray(json.data)) logsArray = json.data;
+                else if (json.logs && Array.isArray(json.logs)) logsArray = json.logs;
+
+                rawLogsData = logsArray;
+                applyFilterAndRender();
+            } catch (err) {
+                console.error("Fetch logs error:", err);
+            }
+        }
+
+        function setFilter(filterType) {
+            currentFilter = filterType;
+            ["ALL", "High", "Medium", "Low"].forEach(f => {
+                const btn = document.getElementById(`filter-${f}`);
+                if (f === filterType) {
+                    btn.className = "px-3.5 py-1.5 rounded-xl bg-cyan-600 text-white font-black shadow-sm";
+                } else {
+                    btn.className = "px-3.5 py-1.5 rounded-xl text-slate-600 hover:text-slate-900 transition font-bold";
+                }
+            });
+            applyFilterAndRender();
+        }
+
+        function applyFilterAndRender() {
+            const urgencyOrder = { "High": 1, "Medium": 2, "Low": 3 };
+
+            let list = rawLogsData.map(item => {
+                return {
+                    id: item.id,
+                    text: item.text || item.original_text,
+                    sentiment: item.sentiment,
+                    polarity: item.polarity_score || item.polarity,
+                    urgency: item.urgency || 'Medium',
+                    status: item.status || 'Pending'
+                };
+            });
+
+            document.getElementById("stat-total").innerText = list.length;
+            document.getElementById("stat-high").innerText = list.filter(l => l.urgency === "High").length;
+            document.getElementById("stat-resolved").innerText = list.filter(l => l.status === "Resolved").length;
+
+            if (currentFilter !== "ALL") {
+                list = list.filter(l => l.urgency === currentFilter);
+            }
+
+            list.sort((a, b) => (urgencyOrder[a.urgency] || 4) - (urgencyOrder[b.urgency] || 4));
+            renderTable(list);
+        }
+
+        function renderTable(list) {
+            const tableBody = document.getElementById("logsTable");
+            tableBody.innerHTML = "";
+
+            if (!list || list.length === 0) {
+                tableBody.innerHTML = `<tr><td colspan="5" class="p-8 text-center text-slate-400 font-semibold">No feedback logs match this urgency filter.</td></tr>`;
+                return;
+            }
+
+            list.forEach(log => {
+                const isResolved = log.status === 'Resolved';
+                const row = document.createElement("tr");
+                row.className = "hover:bg-slate-50/80 transition border-b border-slate-100";
+
+                row.innerHTML = `
+                    <td class="py-3.5 px-3 font-mono font-bold text-cyan-600 text-xs">#${log.id}</td>
+                    <td class="py-3.5 px-3 text-slate-700 font-medium max-w-xs truncate" title="${log.text}">${log.text}</td>
+                    <td class="py-3.5 px-3">
+                        <span class="px-2.5 py-1 rounded-full text-xs font-black inline-block ${getUrgencyClass(log.urgency)}">
+                            ${log.urgency}
+                        </span>
+                    </td>
+                    <td class="py-3.5 px-3 text-center">
+                        <button onclick="toggleResolve(${log.id}, '${log.status}')" class="btn-interact inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-extrabold border transition ${isResolved ? 'bg-emerald-100 text-emerald-700 border-emerald-300 hover:bg-emerald-200' : 'bg-slate-100 hover:bg-slate-200 text-slate-600 border-slate-200'}">
+                            <i class="fa-solid ${isResolved ? 'fa-circle-check text-emerald-600' : 'fa-check text-slate-400'}"></i>
+                            <span>${isResolved ? 'Resolved' : 'Resolve'}</span>
+                        </button>
+                    </td>
+                    <td class="py-3.5 px-3 text-center">
+                        <button onclick="deleteLog(${log.id})" class="btn-interact text-slate-400 hover:text-rose-600 p-2 transition rounded-xl hover:bg-rose-50" title="Delete">
+                            <i class="fa-solid fa-trash text-sm"></i>
+                        </button>
+                    </td>
+                `;
+                tableBody.appendChild(row);
+            });
+        }
+
+        async function toggleResolve(id, currentStatus) {
+            const nextStatus = currentStatus === "Resolved" ? "Pending" : "Resolved";
+            
+            const logItem = rawLogsData.find(l => (l.id || l[0]) === id);
+            if (logItem) {
+                if (Array.isArray(logItem)) logItem[5] = nextStatus;
+                else logItem.status = nextStatus;
+            }
+            applyFilterAndRender();
+            showToast(`Log #${id} updated to ${nextStatus}!`);
+
+            try {
+                await fetch(`${API_BASE}/logs/${id}/resolve`, { method: 'PUT' });
+                fetchLogs();
+            } catch (err) {
+                console.error("Resolve error:", err);
+            }
+        }
+
+        async function deleteLog(id) {
+            if (!confirm(`Delete log #${id}?`)) return;
+            try {
+                const res = await fetch(`${API_BASE}/logs/${id}`, { method: 'DELETE' });
+                if (res.ok) {
+                    showToast(`Log #${id} deleted!`);
+                    fetchLogs();
+                }
+            } catch (err) {
+                console.error("Delete error:", err);
+            }
+        }
+
+        function exportCSV() {
+            if (rawLogsData.length === 0) return alert("No logs to export!");
+            let csvContent = "data:text/csv;charset=utf-8,ID,Text,Urgency,Status\n";
+            rawLogsData.forEach(item => {
+                const id = item.id || item[0];
+                const text = `"${(item.original_text || item.text || item[1]).replace(/"/g, '""')}"`;
+                const urgency = item.urgency || item[4];
+                const status = item.status || item[5] || 'Pending';
+                csvContent += `${id},${text},${urgency},${status}\n`;
+            });
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", `sentiment_logs.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        function getUrgencyClass(urgency) {
+            if (urgency === "High") return "bg-rose-100 text-rose-700 border border-rose-300 shadow-sm animate-pulse";
+            if (urgency === "Medium") return "bg-amber-100 text-amber-800 border border-amber-300";
+            return "bg-slate-100 text-slate-600 border border-slate-200";
+        }
+    </script>
+</body>
+</html>

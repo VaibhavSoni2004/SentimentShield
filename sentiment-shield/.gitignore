@@ -1,0 +1,16 @@
+# Python virtual environment
+venv/
+ENV/
+env/
+
+# Byte-compiled / Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Database file (Do not push local test data to Git)
+*.db
+
+# VS Code / IDE
+.vscode/
+.idea/

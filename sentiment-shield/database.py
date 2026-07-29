@@ -22,7 +22,6 @@ class FeedbackModel(Base):
     urgency = Column(String, nullable=False)
     status = Column(String, default="Pending")
 
-# Naya User Table
 class UserModel(Base):
     __tablename__ = "users"
 
