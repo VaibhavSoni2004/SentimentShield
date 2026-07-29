@@ -1,5 +1,6 @@
 import hashlib
 import os
+from pathlib import Path
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -10,7 +11,8 @@ from sqlalchemy.orm import Session
 from ai_engine import analyze_text
 from database import FeedbackModel, UserModel, get_db, init_db
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# Reliably locate the root directory containing main.py
+BASE_DIR = Path(__file__).resolve().parent
 
 # Initialize Database Tables
 init_db()
@@ -54,25 +56,40 @@ class UserLogin(BaseModel):
 
 @app.get("/")
 def read_root():
-    # Looks inside templates/ first if available, otherwise root
-    index_path = os.path.join(BASE_DIR, "templates", "index.html")
-    if not os.path.exists(index_path):
-        index_path = os.path.join(BASE_DIR, "index.html")
+    # 1. First choice: sentiment-shield/templates/index.html
+    templates_path = BASE_DIR / "templates" / "index.html"
+    if templates_path.exists():
+        return FileResponse(str(templates_path))
 
-    if not os.path.exists(index_path):
-        raise HTTPException(status_code=404, detail="index.html not found")
-    return FileResponse(index_path)
+    # 2. Second choice: sentiment-shield/index.html
+    root_path = BASE_DIR / "index.html"
+    if root_path.exists():
+        return FileResponse(str(root_path))
+
+    # 3. Neither exists -> raise clear error
+    raise HTTPException(
+        status_code=404, 
+        detail=f"index.html not found! Checked in '{templates_path.absolute()}' AND '{root_path.absolute()}'"
+    )
 
 
 @app.get("/login-page")
 def read_login_page():
-    login_path = os.path.join(BASE_DIR, "templates", "login.html")
-    if not os.path.exists(login_path):
-        login_path = os.path.join(BASE_DIR, "login.html")
+    # 1. First choice: sentiment-shield/templates/login.html
+    templates_path = BASE_DIR / "templates" / "login.html"
+    if templates_path.exists():
+        return FileResponse(str(templates_path))
 
-    if not os.path.exists(login_path):
-        raise HTTPException(status_code=404, detail="login.html not found")
-    return FileResponse(login_path)
+    # 2. Second choice: sentiment-shield/login.html
+    root_path = BASE_DIR / "login.html"
+    if root_path.exists():
+        return FileResponse(str(root_path))
+
+    # 3. Neither exists -> raise clear error
+    raise HTTPException(
+        status_code=404, 
+        detail=f"login.html not found! Checked in '{templates_path.absolute()}' AND '{root_path.absolute()}'"
+    )
 
 
 @app.get("/api/health")
