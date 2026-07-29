@@ -1,10 +1,11 @@
 import hashlib
+import os
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse  # Added for serving HTML files
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Import custom modules
 from ai_engine import analyze_text
 from database import FeedbackModel, UserModel, get_db, init_db
@@ -51,14 +52,18 @@ class UserLogin(BaseModel):
 
 @app.get("/")
 def read_root():
-    # Serves index.html at https://sentimentshield.onrender.com/
-    return FileResponse("index.html")
+    index_path = os.path.join(BASE_DIR, "index.html")
+    if not os.path.exists(index_path):
+        raise HTTPException(status_code=404, detail="index.html not found")
+    return FileResponse(index_path)
 
 
 @app.get("/login-page")
 def read_login_page():
-    # Serves login.html at https://sentimentshield.onrender.com/login-page
-    return FileResponse("login.html")
+    login_path = os.path.join(BASE_DIR, "login.html")
+    if not os.path.exists(login_path):
+        raise HTTPException(status_code=404, detail="login.html not found")
+    return FileResponse(login_path)
 
 
 # Optional health check route if you still need raw API status
