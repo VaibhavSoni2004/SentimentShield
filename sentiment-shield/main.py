@@ -1,7 +1,10 @@
 import hashlib
 import os
 from pathlib import Path
+from datetime import datetime, timedelta, timezone
+from jose import JWTError, jwt
 from fastapi import Depends, FastAPI, HTTPException
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -14,6 +17,12 @@ from database import FeedbackModel, UserModel, get_db, init_db
 # Reliably locate the root directory containing main.py
 BASE_DIR = Path(__file__).resolve().parent
 
+SECRET_KEY = "sentimentshield-secret-key-change-later"
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 60
+
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 # Initialize Database Tables
 init_db()
 
@@ -35,7 +44,60 @@ app.add_middleware(
 
 def hash_password(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
+def create_access_token(data: dict, expires_delta: timedelta | None = None):
+    to_encode = data.copy()
 
+    if expires_delta:
+        expire = datetime.now(timezone.utc) + expires_delta
+    else:
+        expire = datetime.now(timezone.utc) + timedelta(
+            minutes=ACCESS_TOKEN_EXPIRE_MINUTES
+        )
+
+    to_encode.update({"exp": expire})
+
+    return jwt.encode(
+        to_encode,
+        SECRET_KEY,
+        algorithm=ALGORITHM
+    )
+
+def get_current_user(token: str = Depends(oauth2_scheme)):
+    credentials_exception = HTTPException(
+        status_code=401,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+    try:
+        payload = jwt.decode(
+            token,
+            SECRET_KEY,
+            algorithms=[ALGORITHM]
+        )
+
+        username = payload.get("sub")
+        role = payload.get("role")
+
+        if username is None or role is None:
+            raise credentials_exception
+
+        return {
+            "username": username,
+            "role": role
+        }
+
+    except JWTError:
+        raise credentials_exception
+
+def get_current_admin(current_user: dict = Depends(get_current_user)):
+    if current_user["role"] != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Admin access required"
+        )
+
+    return current_user
 
 class FeedbackRequest(BaseModel):
     text: str
@@ -49,6 +111,7 @@ class UserRegister(BaseModel):
 class UserLogin(BaseModel):
     username: str
     password: str
+    login_type: str = "user"
 
 
 # --- FRONTEND ROUTES ---
@@ -114,6 +177,7 @@ def analyze_and_store(request: FeedbackRequest, db: Session = Depends(get_db)):
         sentiment=ai_result["sentiment"],
         polarity_score=ai_result["polarity_score"],
         urgency=ai_result["urgency"],
+        urgency_score=ai_result["urgency_score"],
     )
     db.add(db_entry)
     db.commit()
@@ -127,6 +191,7 @@ def analyze_and_store(request: FeedbackRequest, db: Session = Depends(get_db)):
             "sentiment": db_entry.sentiment,
             "polarity_score": db_entry.polarity_score,
             "urgency": db_entry.urgency,
+            "urgency_score": db_entry.urgency_score,
         },
     }
 
@@ -138,7 +203,11 @@ def get_all_logs(db: Session = Depends(get_db)):
 
 
 @app.delete("/logs/{log_id}")
-def delete_log(log_id: int, db: Session = Depends(get_db)):
+def delete_log(
+    log_id: int,
+    db: Session = Depends(get_db),
+    current_admin: dict = Depends(get_current_admin)
+):
     log_to_delete = (
         db.query(FeedbackModel).filter(FeedbackModel.id == log_id).first()
     )
@@ -170,23 +239,91 @@ def register(user: UserRegister, db: Session = Depends(get_db)):
 @app.post("/login")
 def login(user: UserLogin, db: Session = Depends(get_db)):
     hashed_pw = hash_password(user.password)
+
     db_user = (
         db.query(UserModel)
         .filter(
-            UserModel.username == user.username, UserModel.password == hashed_pw
+            UserModel.username == user.username,
+            UserModel.password == hashed_pw
         )
         .first()
     )
+
     if not db_user:
         raise HTTPException(
-            status_code=401, detail="Invalid username or password"
+            status_code=401,
+            detail="Invalid username or password"
         )
 
-    return {"message": "Login successful", "username": db_user.username}
+    # Verify that the selected login type matches
+    # the actual role stored in the database.
+    if user.login_type == "admin" and db_user.role != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="This account does not have administrator privileges"
+        )
 
+    if user.login_type == "user" and db_user.role != "user":
+        raise HTTPException(
+            status_code=403,
+            detail="Please use Admin Login for this account"
+        )
+
+    access_token = create_access_token(
+        data={
+            "sub": db_user.username,
+            "role": db_user.role
+        }
+    )
+
+    return {
+        "message": "Login successful",
+        "username": db_user.username,
+        "role": db_user.role,
+        "access_token": access_token,
+        "token_type": "bearer"
+    }
+
+@app.post("/token")
+def login_for_swagger(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db)
+):
+    hashed_pw = hash_password(form_data.password)
+
+    db_user = (
+        db.query(UserModel)
+        .filter(
+            UserModel.username == form_data.username,
+            UserModel.password == hashed_pw
+        )
+        .first()
+    )
+
+    if not db_user:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid username or password"
+        )
+
+    access_token = create_access_token(
+        data={
+            "sub": db_user.username,
+            "role": db_user.role
+        }
+    )
+
+    return {
+        "access_token": access_token,
+        "token_type": "bearer"
+    }
 
 @app.put("/logs/{log_id}/resolve")
-def resolve_log(log_id: int, db: Session = Depends(get_db)):
+def resolve_log(
+    log_id: int,
+    db: Session = Depends(get_db),
+    current_admin: dict = Depends(get_current_admin)
+):
     log_to_update = (
         db.query(FeedbackModel).filter(FeedbackModel.id == log_id).first()
     )

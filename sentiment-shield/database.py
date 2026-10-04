@@ -20,6 +20,7 @@ class FeedbackModel(Base):
     sentiment = Column(String, nullable=False)
     polarity_score = Column(Float, nullable=False)
     urgency = Column(String, nullable=False)
+    urgency_score = Column(Integer, default=50)
     status = Column(String, default="Pending")
 
 class UserModel(Base):
@@ -28,6 +29,7 @@ class UserModel(Base):
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String, unique=True, index=True, nullable=False)
     password = Column(String, nullable=False)
+    role = Column(String, default="user", nullable=False)
 
 def init_db():
     Base.metadata.create_all(bind=engine)
