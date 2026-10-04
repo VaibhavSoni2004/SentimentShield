@@ -28,7 +28,7 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 init_db()
 
 app = FastAPI(
-    title="SentimentShield API",
+    title="ComplaintFlow API",
     description="An AI-powered feedback analysis API using FastAPI & SQLite",
     version="1.0.0",
 )
