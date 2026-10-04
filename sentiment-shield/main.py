@@ -1,5 +1,6 @@
 import hashlib
 import os
+import hashlib
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from jose import JWTError, jwt
@@ -17,7 +18,7 @@ from database import FeedbackModel, UserModel, get_db, init_db
 # Reliably locate the root directory containing main.py
 BASE_DIR = Path(__file__).resolve().parent
 
-SECRET_KEY = "sentimentshield-secret-key-change-later"
+SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-key")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
 
@@ -44,6 +45,43 @@ app.add_middleware(
 
 def hash_password(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
+
+def create_default_admin():
+    admin_username = os.getenv("ADMIN_USERNAME")
+    admin_password = os.getenv("ADMIN_PASSWORD")
+
+    if not admin_username or not admin_password:
+        return
+
+    db = next(get_db())
+
+    try:
+        existing_admin = (
+            db.query(UserModel)
+            .filter(UserModel.username == admin_username)
+            .first()
+        )
+
+        if not existing_admin:
+            admin = UserModel(
+                username=admin_username,
+                password=hash_password(admin_password),
+                role="admin"
+            )
+            db.add(admin)
+            db.commit()
+            print(f"Default admin created: {admin_username}")
+
+        elif existing_admin.role != "admin":
+            existing_admin.role = "admin"
+            db.commit()
+            print(f"Existing account promoted to admin: {admin_username}")
+
+    finally:
+        db.close()
+
+create_default_admin()
+
 def create_access_token(data: dict, expires_delta: timedelta | None = None):
     to_encode = data.copy()
 
