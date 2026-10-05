@@ -16,6 +16,7 @@ class FeedbackModel(Base):
     __tablename__ = "feedback_logs"
 
     id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=True)
     text = Column(String, nullable=False)
     sentiment = Column(String, nullable=False)
     polarity_score = Column(Float, nullable=False)

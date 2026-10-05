@@ -651,20 +651,21 @@
 
                 try {
 
-                    const response = await fetch(
-                        `${API_BASE}/analyze`,
-                        {
-                            method: "POST",
+                   const response = await fetch(
+    `${API_BASE}/analyze`,
+    {
+        method: "POST",
 
-                            headers: {
-                                "Content-Type": "application/json"
-                            },
+        headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${localStorage.getItem("token")}`
+        },
 
-                            body: JSON.stringify({
-                                text
-                            })
-                        }
-                    );
+        body: JSON.stringify({
+            text
+        })
+    }
+);
 
                     if (response.ok) {
 
@@ -687,49 +688,54 @@
         // FETCH LOGS
         // --------------------------------
 
-        async function fetchLogs() {
+       async function fetchLogs() {
 
-            try {
+    try {
 
-                const res =
-                    await fetch(`${API_BASE}/logs`);
-
-                const json =
-                    await res.json();
-
-                let logsArray = [];
-
-                if (Array.isArray(json)) {
-
-                    logsArray = json;
-
-                } else if (
-                    json.data &&
-                    Array.isArray(json.data)
-                ) {
-
-                    logsArray = json.data;
-
-                } else if (
-                    json.logs &&
-                    Array.isArray(json.logs)
-                ) {
-
-                    logsArray = json.logs;
+        const res = await fetch(
+            `${API_BASE}/logs`,
+            {
+                headers: {
+                    "Authorization": `Bearer ${localStorage.getItem("token")}`
                 }
-
-                rawLogsData = logsArray;
-
-                applyFilterAndRender();
-
-            } catch (err) {
-
-                console.error(
-                    "Fetch logs error:",
-                    err
-                );
             }
+        );
+
+        const json = await res.json();
+
+        let logsArray = [];
+
+        if (Array.isArray(json)) {
+
+            logsArray = json;
+
+        } else if (
+            json.data &&
+            Array.isArray(json.data)
+        ) {
+
+            logsArray = json.data;
+
+        } else if (
+            json.logs &&
+            Array.isArray(json.logs)
+        ) {
+
+            logsArray = json.logs;
         }
+
+        rawLogsData = logsArray;
+
+        applyFilterAndRender();
+
+    } catch (err) {
+
+        console.error(
+            "Fetch logs error:",
+            err
+        );
+    }
+}
 
 
         // --------------------------------

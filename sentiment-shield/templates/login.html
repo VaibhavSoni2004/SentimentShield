@@ -143,8 +143,16 @@
     </div>
 
     <script>
-        const API_BASE = "";
-        let isLoginMode = true;
+         const API_BASE = "";
+
+    // If user is already logged in, skip login page
+    const token = localStorage.getItem("token");
+
+    if (token) {
+        window.location.href = "/";
+    }
+
+    let isLoginMode = true;
 
         function toggleMode() {
             isLoginMode = !isLoginMode;

@@ -202,7 +202,11 @@ def health_check():
 
 
 @app.post("/analyze")
-def analyze_and_store(request: FeedbackRequest, db: Session = Depends(get_db)):
+def analyze_and_store(
+    request: FeedbackRequest,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
     if not request.text.strip():
         raise HTTPException(
             status_code=400, detail="Text field cannot be empty."
@@ -210,13 +214,28 @@ def analyze_and_store(request: FeedbackRequest, db: Session = Depends(get_db)):
 
     ai_result = analyze_text(request.text)
 
+    # Find the logged-in user's database ID
+    user = (
+        db.query(UserModel)
+        .filter(UserModel.username == current_user["username"])
+        .first()
+    )
+
+    if not user:
+        raise HTTPException(
+            status_code=404,
+            detail="User not found"
+        )
+
     db_entry = FeedbackModel(
+        user_id=user.id,
         text=request.text,
         sentiment=ai_result["sentiment"],
         polarity_score=ai_result["polarity_score"],
         urgency=ai_result["urgency"],
         urgency_score=ai_result["urgency_score"],
     )
+
     db.add(db_entry)
     db.commit()
     db.refresh(db_entry)
@@ -232,12 +251,36 @@ def analyze_and_store(request: FeedbackRequest, db: Session = Depends(get_db)):
             "urgency_score": db_entry.urgency_score,
         },
     }
-
-
 @app.get("/logs")
-def get_all_logs(db: Session = Depends(get_db)):
-    logs = db.query(FeedbackModel).all()
-    return {"total_logs": len(logs), "logs": logs}
+def get_all_logs(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    if current_user["role"] == "admin":
+        logs = db.query(FeedbackModel).all()
+    else:
+        user = (
+            db.query(UserModel)
+            .filter(UserModel.username == current_user["username"])
+            .first()
+        )
+
+        if not user:
+            raise HTTPException(
+                status_code=404,
+                detail="User not found"
+            )
+
+        logs = (
+            db.query(FeedbackModel)
+            .filter(FeedbackModel.user_id == user.id)
+            .all()
+        )
+
+    return {
+        "total_logs": len(logs),
+        "logs": logs
+    }
 
 
 @app.delete("/logs/{log_id}")
