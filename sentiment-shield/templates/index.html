@@ -524,28 +524,47 @@
         let currentRole = "";
 
 
+        function isTokenExpired(t) {
+            if (!t || typeof t !== "string" || t === "null" || t === "undefined") return true;
+            try {
+                const parts = t.split(".");
+                if (parts.length !== 3) return true;
+                const payload = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")));
+                if (!payload.exp) return false;
+                return Date.now() >= payload.exp * 1000;
+            } catch (e) {
+                return true;
+            }
+        }
+
+        function handleAuthFailure(msg) {
+            localStorage.removeItem("token");
+            localStorage.removeItem("user");
+            localStorage.removeItem("role");
+            if (msg) {
+                alert(msg);
+            }
+            window.location.href = "/login-page";
+        }
+
         // --------------------------------
         // PAGE INITIALIZATION
         // --------------------------------
 
         document.addEventListener("DOMContentLoaded", () => {
-
+            const token = localStorage.getItem("token");
             const currentUser = localStorage.getItem("user");
             currentRole = localStorage.getItem("role");
 
-            if (!currentUser) {
-
-                window.location.href = "/login-page";
-
-            } else {
-
-                document.getElementById("nav-username").innerText = currentUser;
-
-                document.getElementById("dropdown-username").innerText = currentUser;
-
-                document.getElementById("profile-avatar").innerText =
-                    currentUser.charAt(0).toUpperCase();
+            if (!token || !currentUser || isTokenExpired(token)) {
+                handleAuthFailure();
+                return;
             }
+
+            document.getElementById("nav-username").innerText = currentUser;
+            document.getElementById("dropdown-username").innerText = currentUser;
+            document.getElementById("profile-avatar").innerText =
+                currentUser.charAt(0).toUpperCase();
 
             fetchLogs();
         });
@@ -649,23 +668,34 @@
                 const text =
                     document.getElementById("reviewText").value;
 
+                const token = localStorage.getItem("token");
+                if (!token || isTokenExpired(token)) {
+                    handleAuthFailure("Your session has expired. Please sign in again.");
+                    return;
+                }
+
                 try {
 
                    const response = await fetch(
-    `${API_BASE}/analyze`,
-    {
-        method: "POST",
+                        `${API_BASE}/analyze`,
+                        {
+                            method: "POST",
 
-        headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${localStorage.getItem("token")}`
-        },
+                            headers: {
+                                "Content-Type": "application/json",
+                                "Authorization": `Bearer ${token}`
+                            },
 
-        body: JSON.stringify({
-            text
-        })
-    }
-);
+                            body: JSON.stringify({
+                                text
+                            })
+                        }
+                    );
+
+                    if (response.status === 401) {
+                        handleAuthFailure("Your session has expired. Please sign in again.");
+                        return;
+                    }
 
                     if (response.ok) {
 
@@ -674,6 +704,9 @@
                         showToast("Feedback analyzed & logged!");
 
                         fetchLogs();
+                    } else {
+                        const errJson = await response.json().catch(() => ({}));
+                        alert(errJson.detail || "Analysis request failed.");
                     }
 
                 } catch (err) {
@@ -690,18 +723,29 @@
 
        async function fetchLogs() {
 
-    try {
-
-        const res = await fetch(
-            `${API_BASE}/logs`,
-            {
-                headers: {
-                    "Authorization": `Bearer ${localStorage.getItem("token")}`
-                }
+            const token = localStorage.getItem("token");
+            if (!token || isTokenExpired(token)) {
+                handleAuthFailure();
+                return;
             }
-        );
 
-        const json = await res.json();
+            try {
+
+                const res = await fetch(
+                    `${API_BASE}/logs`,
+                    {
+                        headers: {
+                            "Authorization": `Bearer ${token}`
+                        }
+                    }
+                );
+
+                if (res.status === 401) {
+                    handleAuthFailure("Your session has expired. Please sign in again.");
+                    return;
+                }
+
+                const json = await res.json();
 
         let logsArray = [];
 
@@ -1576,6 +1620,11 @@
                     );
 
 
+                if (response.status === 401) {
+                    handleAuthFailure("Your session has expired. Please sign in again.");
+                    return;
+                }
+
                 if (!response.ok) {
 
                     const errorData =
@@ -1630,6 +1679,11 @@
                         }
                     );
 
+
+                if (res.status === 401) {
+                    handleAuthFailure("Your session has expired. Please sign in again.");
+                    return;
+                }
 
                 if (res.ok) {
 

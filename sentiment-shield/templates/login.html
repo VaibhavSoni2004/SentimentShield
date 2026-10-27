@@ -143,16 +143,33 @@
     </div>
 
     <script>
-         const API_BASE = "";
+        const API_BASE = "";
 
-    // If user is already logged in, skip login page
-    const token = localStorage.getItem("token");
+        function isTokenExpired(t) {
+            if (!t || typeof t !== "string" || t === "null" || t === "undefined") return true;
+            try {
+                const parts = t.split(".");
+                if (parts.length !== 3) return true;
+                const payload = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")));
+                if (!payload.exp) return false;
+                return Date.now() >= payload.exp * 1000;
+            } catch (e) {
+                return true;
+            }
+        }
 
-    if (token) {
-        window.location.href = "/";
-    }
+        // If user is already logged in with a valid unexpired token, redirect to dashboard
+        const token = localStorage.getItem("token");
+        if (token && !isTokenExpired(token)) {
+            window.location.href = "/";
+        } else {
+            // Clean up stale or expired credentials so the user can log in freshly
+            localStorage.removeItem("token");
+            localStorage.removeItem("user");
+            localStorage.removeItem("role");
+        }
 
-    let isLoginMode = true;
+        let isLoginMode = true;
 
         function toggleMode() {
             isLoginMode = !isLoginMode;

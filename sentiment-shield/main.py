@@ -18,9 +18,35 @@ from database import FeedbackModel, UserModel, get_db, init_db
 # Reliably locate the root directory containing main.py
 BASE_DIR = Path(__file__).resolve().parent
 
-SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-key")
+ENVIRONMENT = os.getenv("ENVIRONMENT", "development").strip().lower()
+
+
+def get_secret_key() -> str:
+    """Retrieves and validates the JWT SECRET_KEY based on the running environment.
+
+    In development, allows fallback to 'dev-secret-key' for convenient local development.
+    In production, strictly requires a configured secret and rejects missing, empty,
+    or default 'dev-secret-key' values to prevent unauthorized token forgery.
+    """
+    env = os.getenv("ENVIRONMENT", "development").strip().lower()
+    raw_key = os.getenv("SECRET_KEY")
+    key = raw_key.strip() if raw_key else ""
+
+    if env in ("production", "prod"):
+        if not key or key == "dev-secret-key":
+            raise RuntimeError(
+                "CRITICAL CONFIGURATION ERROR: In production, SECRET_KEY must be explicitly "
+                "configured with a secure, unique secret. Missing, empty, or default 'dev-secret-key' "
+                "is not permitted."
+            )
+        return key
+
+    return key if key else "dev-secret-key"
+
+
+SECRET_KEY = get_secret_key()
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440"))
 
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
