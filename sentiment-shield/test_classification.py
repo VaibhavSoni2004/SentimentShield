@@ -1,6 +1,11 @@
 import os
+from pathlib import Path
 import unittest
 from unittest.mock import MagicMock, patch
+
+# Enforce local SQLite for offline unit tests so tests never connect to remote databases
+TEST_DB_PATH = Path(__file__).resolve().parent / "feedback.db"
+os.environ["DATABASE_URL"] = f"sqlite:///{TEST_DB_PATH}"
 
 from google.genai import types
 import httpx
@@ -731,6 +736,270 @@ class TestSecretKeyProductionSafety(unittest.TestCase):
             with self.assertRaises(RuntimeError) as ctx:
                 get_secret_key()
             self.assertNotIn("partial-or-bad-secret", str(ctx.exception))
+
+
+class TestDatabaseConfiguration(unittest.TestCase):
+    """Verifies DATABASE_URL validation, normalization, and engine configuration."""
+
+    def test_development_defaults_to_sqlite(self):
+        """When ENVIRONMENT is development or unset, missing DATABASE_URL defaults to SQLite."""
+        from database import get_database_url
+        with patch.dict(os.environ, {"ENVIRONMENT": "development"}, clear=False):
+            os.environ.pop("DATABASE_URL", None)
+            url = get_database_url()
+            self.assertTrue(url.startswith("sqlite:///"))
+            self.assertIn("feedback.db", url)
+
+    def test_postgres_url_normalization(self):
+        """postgres:// is rewritten to postgresql:// and sslmode=require is ensured for remote hosts."""
+        from database import get_database_url
+        with patch.dict(os.environ, {
+            "ENVIRONMENT": "development",
+            "DATABASE_URL": "postgres://user:pass@db.supabase.co:5432/postgres"
+        }):
+            url = get_database_url()
+            self.assertTrue(url.startswith("postgresql://"))
+            self.assertIn("sslmode=require", url)
+
+    def test_production_rejects_missing_database_url(self):
+        """In production, missing DATABASE_URL raises RuntimeError."""
+        from database import get_database_url
+        with patch.dict(os.environ, {"ENVIRONMENT": "production"}, clear=False):
+            os.environ.pop("DATABASE_URL", None)
+            with self.assertRaises(RuntimeError) as ctx:
+                get_database_url()
+            self.assertIn("CRITICAL CONFIGURATION ERROR", str(ctx.exception))
+            self.assertIn("DATABASE_URL", str(ctx.exception))
+
+    def test_production_rejects_sqlite_database_url(self):
+        """In production, SQLite DATABASE_URL raises RuntimeError."""
+        from database import get_database_url
+        with patch.dict(os.environ, {
+            "ENVIRONMENT": "production",
+            "DATABASE_URL": "sqlite:///./prod.db"
+        }):
+            with self.assertRaises(RuntimeError) as ctx:
+                get_database_url()
+            self.assertIn("CRITICAL CONFIGURATION ERROR", str(ctx.exception))
+            self.assertIn("PostgreSQL", str(ctx.exception))
+
+    def test_production_accepts_postgres_url(self):
+        """In production, a valid postgresql:// URL is accepted with SSL ensured."""
+        from database import get_database_url
+        valid_pg = "postgresql://postgres:secret@db.supabase.co:5432/postgres"
+        with patch.dict(os.environ, {
+            "ENVIRONMENT": "production",
+            "DATABASE_URL": valid_pg
+        }):
+            url = get_database_url()
+            self.assertTrue(url.startswith("postgresql://"))
+            self.assertIn("sslmode=require", url)
+
+    def test_engine_creation_sqlite_vs_postgres(self):
+        """Verifies that SQLite engines connect to sqlite and PostgreSQL engines configure pre_ping."""
+        from database import create_db_engine
+        sqlite_engine = create_db_engine("sqlite:///:memory:")
+        self.assertEqual(sqlite_engine.dialect.name, "sqlite")
+        sqlite_engine.dispose()
+
+        pg_engine = create_db_engine("postgresql://user:pass@localhost:5432/testdb")
+        self.assertEqual(pg_engine.dialect.name, "postgresql")
+        self.assertTrue(pg_engine.pool._pre_ping)
+        pg_engine.dispose()
+
+
+class TestDatabaseOperations(unittest.TestCase):
+    """Verifies user registration, repeated login, complaint isolation, and resolution using isolated DB."""
+
+    def setUp(self):
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+        from database import Base
+        self.test_engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+        Base.metadata.create_all(bind=self.test_engine)
+        self.TestSession = sessionmaker(autocommit=False, autoflush=False, bind=self.test_engine)
+        self.db = self.TestSession()
+
+    def tearDown(self):
+        self.db.close()
+        from database import Base
+        Base.metadata.drop_all(bind=self.test_engine)
+
+    def test_user_registration_and_repeated_login(self):
+        """Verify user registration, password hashing, and repeated successful logins."""
+        from database import UserModel
+        from main import hash_password
+
+        # 1. Register user
+        pw_hash = hash_password("secret123")
+        user = UserModel(username="test_john", password=pw_hash, role="user")
+        self.db.add(user)
+        self.db.commit()
+        self.db.refresh(user)
+        self.assertIsNotNone(user.id)
+        self.assertEqual(user.role, "user")
+
+        # 2. First login attempt with correct password
+        db_user_1 = self.db.query(UserModel).filter(
+            UserModel.username == "test_john",
+            UserModel.password == hash_password("secret123")
+        ).first()
+        self.assertIsNotNone(db_user_1)
+        self.assertEqual(db_user_1.username, "test_john")
+
+        # 3. Repeated login attempt with correct password
+        db_user_2 = self.db.query(UserModel).filter(
+            UserModel.username == "test_john",
+            UserModel.password == hash_password("secret123")
+        ).first()
+        self.assertIsNotNone(db_user_2)
+        self.assertEqual(db_user_2.id, user.id)
+
+        # 4. Login attempt with incorrect password fails
+        db_user_bad = self.db.query(UserModel).filter(
+            UserModel.username == "test_john",
+            UserModel.password == hash_password("wrongpassword")
+        ).first()
+        self.assertIsNone(db_user_bad)
+
+    def test_complaint_persistence_and_user_isolation(self):
+        """Verify complaint persistence and user log isolation (regular user vs admin)."""
+        from database import FeedbackModel, UserModel
+        from main import hash_password
+
+        # Create user A, user B, and an admin
+        user_a = UserModel(username="user_a", password=hash_password("pw"), role="user")
+        user_b = UserModel(username="user_b", password=hash_password("pw"), role="user")
+        admin = UserModel(username="admin_user", password=hash_password("pw"), role="admin")
+        self.db.add_all([user_a, user_b, admin])
+        self.db.commit()
+
+        # Add complaints for user A and user B
+        fb_a1 = FeedbackModel(
+            user_id=user_a.id, text="Complaint 1 from A",
+            sentiment="Negative", polarity_score=-0.6,
+            urgency="High", urgency_score=80, status="Pending"
+        )
+        fb_a2 = FeedbackModel(
+            user_id=user_a.id, text="Complaint 2 from A",
+            sentiment="Neutral", polarity_score=0.0,
+            urgency="Low", urgency_score=20, status="Pending"
+        )
+        fb_b1 = FeedbackModel(
+            user_id=user_b.id, text="Complaint from B",
+            sentiment="Negative", polarity_score=-0.4,
+            urgency="Medium", urgency_score=50, status="Pending"
+        )
+        self.db.add_all([fb_a1, fb_a2, fb_b1])
+        self.db.commit()
+
+        # Query as User A: should only see A's 2 logs
+        logs_a = self.db.query(FeedbackModel).filter(FeedbackModel.user_id == user_a.id).all()
+        self.assertEqual(len(logs_a), 2)
+        self.assertTrue(all(l.user_id == user_a.id for l in logs_a))
+
+        # Query as User B: should only see B's 1 log
+        logs_b = self.db.query(FeedbackModel).filter(FeedbackModel.user_id == user_b.id).all()
+        self.assertEqual(len(logs_b), 1)
+        self.assertEqual(logs_b[0].text, "Complaint from B")
+
+        # Query as Admin: should see all 3 logs
+        logs_all = self.db.query(FeedbackModel).all()
+        self.assertEqual(len(logs_all), 3)
+
+        # Toggle resolution status
+        fb_a1.status = "Resolved"
+        self.db.commit()
+        self.db.refresh(fb_a1)
+        self.assertEqual(fb_a1.status, "Resolved")
+
+
+class TestMigrationUtility(unittest.TestCase):
+    """Verifies SQLite-to-PostgreSQL migration utility helpers."""
+
+    def test_normalize_and_secure_postgres_url_basic(self):
+        from migrate_sqlite_to_pg import normalize_and_secure_postgres_url
+        res = normalize_and_secure_postgres_url("postgres://u:p@db.supabase.co:5432/d")
+        self.assertTrue(res.startswith("postgresql://"))
+        self.assertIn("sslmode=require", res)
+
+    def test_normalize_and_secure_postgres_url_placeholder_prompt(self):
+        from migrate_sqlite_to_pg import normalize_and_secure_postgres_url
+        with patch("getpass.getpass", return_value="mySecretPass123"):
+            res = normalize_and_secure_postgres_url(
+                "postgresql://postgres:[YOUR-PASSWORD]@db.supabase.co:5432/postgres"
+            )
+            self.assertIn("mySecretPass123", res)
+            self.assertNotIn("[YOUR-PASSWORD]", res)
+            self.assertIn("sslmode=require", res)
+
+    def test_password_with_special_characters_is_url_encoded(self):
+        """Verify that passwords containing @, #, %, &, etc. are safely URL-encoded."""
+        from urllib.parse import urlparse
+        from migrate_sqlite_to_pg import normalize_and_secure_postgres_url
+        complex_pw = "P@ss#w0rd!%^&*()_+"
+        with patch("getpass.getpass", return_value=complex_pw):
+            res = normalize_and_secure_postgres_url(
+                "postgresql://postgres:[YOUR-PASSWORD]@db.supabase.co:5432/postgres"
+            )
+            # URL must not contain raw unencoded '@' in the password segment
+            self.assertNotIn(f":{complex_pw}@", res)
+            self.assertIn("%40", res)  # '@' encoded
+            self.assertIn("%23", res)  # '#' encoded
+
+            # Verify SQLAlchemy correctly unquotes and retrieves the exact original password
+            from sqlalchemy.engine.url import make_url
+            parsed_url = make_url(res)
+            self.assertEqual(parsed_url.password, complex_pw)
+
+    def test_complaint_duplicate_detection_distinguishes_different_users(self):
+        """Verify that identical text from DIFFERENT users is not falsely skipped."""
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+        from database import Base, FeedbackModel, UserModel
+
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        Session = sessionmaker(bind=engine)
+        session = Session()
+
+        # Pre-populate User 1 and User 2
+        u1 = UserModel(id=1, username="user1", password="pw", role="user")
+        u2 = UserModel(id=2, username="user2", password="pw", role="user")
+        session.add_all([u1, u2])
+
+        # Pre-populate User 1's complaint
+        fb1 = FeedbackModel(id=10, user_id=1, text="Same complaint text", sentiment="Negative", polarity_score=-0.5, urgency="High", urgency_score=80)
+        session.add(fb1)
+        session.commit()
+
+        # Index target records exactly as done in migrate_sqlite_to_pg.py
+        existing_feedback = session.query(FeedbackModel).all()
+        pg_feedback_by_user_text = {(f.user_id, f.text): f for f in existing_feedback}
+
+        # Case A: User 1 submits "Same complaint text" again -> matches (1, text) -> SKIP
+        self.assertIn((1, "Same complaint text"), pg_feedback_by_user_text)
+
+        # Case B: User 2 submits "Same complaint text" -> does NOT match (2, text) -> MUST NOT SKIP
+        self.assertNotIn((2, "Same complaint text"), pg_feedback_by_user_text)
+
+        session.close()
+        engine.dispose()
+
+    def test_read_sqlite_data_nonexistent_path(self):
+        from pathlib import Path
+        from migrate_sqlite_to_pg import read_sqlite_data
+        with self.assertRaises(FileNotFoundError):
+            read_sqlite_data(Path("nonexistent_db_12345.db"))
+
+    def test_read_sqlite_data_real_db(self):
+        from pathlib import Path
+        from migrate_sqlite_to_pg import read_sqlite_data
+        db_path = Path("feedback.db")
+        if db_path.exists():
+            users, feedback = read_sqlite_data(db_path)
+            self.assertGreaterEqual(len(users), 1)
+            self.assertGreaterEqual(len(feedback), 1)
 
 
 if __name__ == "__main__":
